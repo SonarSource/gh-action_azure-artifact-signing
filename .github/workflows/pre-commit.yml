@@ -1,17 +1,18 @@
----
+name: Pre-commit
 
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
-    name: "pre-commit"
-    runs-on: ubuntu-latest
+    name: pre-commit
+    runs-on: github-ubuntu-latest-s
     steps:
       - uses: SonarSource/gh-action_pre-commit@2ddc0c7fdabce0adfaaa4075a17690972ed9961a # 1.2.0
         with:
           extra-args: >
             --from-ref=origin/${{ github.event.pull_request.base.ref }}
             --to-ref=${{ github.event.pull_request.head.sha }}
-
-

@@ -1,14 +1,12 @@
 name: Cleanup PR Resources
+
 on:
   pull_request:
     types: [closed]
 
 jobs:
   cleanup:
-    # Runner selection based on repository visibility:
-    # - Private/internal repositories: sonar-xs
-    # - Public repositories: github-ubuntu-latest-s
-    runs-on: sonar-xs
+    runs-on: github-ubuntu-latest-s
     name: Cleanup
     permissions:
       actions: write
