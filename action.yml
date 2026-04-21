@@ -1,0 +1,23 @@
+name: Azure Artifact Signing
+description: Sign Windows artifacts using Azure Code Signing (Trusted Signing)
+author: SonarSource
+
+inputs:
+  files-folder:
+    description: Path to the folder containing files to sign
+    required: true
+  files-folder-filter:
+    description: Glob pattern to filter files within the folder (e.g. "*.exe,*.dll")
+    required: false
+    default: "*.exe,*.dll,*.msi"
+
+runs:
+  using: composite
+  steps:
+    - name: Sign
+      shell: bash
+      run: echo "Signing artifacts"
+
+branding:
+  icon: lock
+  color: blue

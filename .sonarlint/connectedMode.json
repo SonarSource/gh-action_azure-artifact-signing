@@ -1,0 +1,5 @@
+{
+    "sonarCloudOrganization": "sonarsource",
+    "projectKey": "SonarSource_gh-action_azure-artifact-signing",
+    "region": "EU"
+}
