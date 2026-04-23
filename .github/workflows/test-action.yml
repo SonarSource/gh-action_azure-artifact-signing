@@ -2,7 +2,8 @@ name: Test
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
   pull_request:
 
 jobs:
@@ -14,9 +15,38 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Test
+      - name: Create test artifact
         shell: pwsh
         run: |
-          Write-Host "Creating test artifact"
-          Write-Host "Test signing"
-          Write-Host "Verify signature"
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          dotnet new console --name SigningSample --framework net8.0 --force
+          dotnet publish SigningSample/SigningSample.csproj -c Release -r win-x64 --self-contained false -o artifacts
+
+      - name: Sign test artifact
+        uses: ./
+        with:
+          files-folder: artifacts
+          files-folder-filter: "*.dll,*.exe"
+
+      - name: Verify signatures after action
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path artifacts -File | Where-Object { $_.Extension -in @(".dll", ".exe") }
+          if ($files.Count -eq 0) {
+            throw "No .dll or .exe files found in artifacts folder."
+          }
+
+          $failed = $false
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -FilePath $file.FullName
+            if ($signature.Status -ne "Valid") {
+              Write-Error "Invalid signature on $($file.Name): $($signature.Status)"
+              $failed = $true
+            } else {
+              Write-Host "Valid signature on $($file.Name): $($signature.SignerCertificate.Subject)"
+            }
+          }
+
+          if ($failed) {
+            throw "One or more artifacts are not correctly signed."
+          }

@@ -1,5 +1,5 @@
 name: Azure Artifact Signing
-description: Sign Windows artifacts using Azure Code Signing (Trusted Signing)
+description: Sign Windows artifacts using Azure Artifact Signing
 author: SonarSource
 
 inputs:
@@ -14,9 +14,104 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Sign
+    - name: Configure signing parameters
+      id: signing-config
       shell: bash
-      run: echo "Signing artifacts"
+      run: |
+        REF="${GITHUB_REF_NAME}"
+        EVENT="${GITHUB_EVENT_NAME}"
+
+        if [[ "$EVENT" != "pull_request" ]] && [[ "$REF" == "master" || "$REF" == branch-* ]]; then
+          echo "account=codesigning-release" >> "$GITHUB_OUTPUT"
+          echo "profile=sonarsource-release" >> "$GITHUB_OUTPUT"
+          echo "client-id=c1fcac4d-eb47-402c-8318-37d5d87b9335" >> "$GITHUB_OUTPUT"
+          echo "is-test-env=false" >> "$GITHUB_OUTPUT"
+          echo "profile-type=release" >> "$GITHUB_OUTPUT"
+        else
+          echo "account=codesigning-test" >> "$GITHUB_OUTPUT"
+          echo "profile=sonarsource-test" >> "$GITHUB_OUTPUT"
+          echo "client-id=6b33b753-44e5-4afe-8da5-d7f849bd7909" >> "$GITHUB_OUTPUT"
+          echo "is-test-env=true" >> "$GITHUB_OUTPUT"
+          echo "profile-type=test" >> "$GITHUB_OUTPUT"
+        fi
+
+        echo "signing-endpoint=https://weu.codesigning.azure.net/" >> "$GITHUB_OUTPUT"
+        echo "tenant-id=75622d57-788f-4dd3-b33c-739f625e6311" >> "$GITHUB_OUTPUT"
+        echo "subscription-id=05011d2a-e478-46bd-b842-09c8693acccb" >> "$GITHUB_OUTPUT"
+
+    - name: Azure login
+      shell: pwsh
+      env:
+        AZURE_CLIENT_ID: ${{ steps.signing-config.outputs.client-id }}
+        AZURE_SUBSCRIPTION_ID: ${{ steps.signing-config.outputs.subscription-id }}
+        AZURE_TENANT_ID: ${{ steps.signing-config.outputs.tenant-id }}
+      run: ./.github/scripts/azure-login.ps1
+
+    - name: Import test Artifact Signing certificate chain
+      if: ${{ steps.signing-config.outputs.is-test-env == 'true' }}
+      shell: pwsh
+      env:
+        SIGNING_ACCOUNT: ${{ steps.signing-config.outputs.account }}
+        SIGNING_CERTIFICATE_PROFILE: ${{ steps.signing-config.outputs.profile }}
+        SIGNING_ENDPOINT: ${{ steps.signing-config.outputs.signing-endpoint }}
+      run: ./.github/scripts/import-test-signing-certificate-chain.ps1
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: "17"
+        distribution: "temurin"
+
+    - name: Download jsign
+      shell: bash
+      run: |
+        curl -sSfL -o "$RUNNER_TEMP/jsign.jar" \
+          "https://github.com/ebourg/jsign/releases/download/7.4/jsign-7.4.jar"
+
+    - name: Sign artifacts
+      shell: bash
+      env:
+        INPUT_FILES_FOLDER: ${{ inputs.files-folder }}
+        INPUT_FILES_FILTER: ${{ inputs.files-folder-filter }}
+        SIGNING_ENDPOINT: ${{ steps.signing-config.outputs.signing-endpoint }}
+        SIGNING_ALIAS: ${{ steps.signing-config.outputs.account }}/${{ steps.signing-config.outputs.profile }}
+      run: |
+        TOKEN=$(az account get-access-token --resource https://codesigning.azure.net --query accessToken -o tsv)
+        if [[ -z "$TOKEN" ]]; then
+          echo "::error::Failed to retrieve Azure access token for code signing."
+          exit 1
+        fi
+        echo "::add-mask::$TOKEN"
+
+        shopt -s nullglob
+        FILES=()
+        IFS=',' read -ra FILTERS <<< "${INPUT_FILES_FILTER}"
+        for FILTER in "${FILTERS[@]}"; do
+          TRIMMED="$(echo "$FILTER" | xargs)"
+          [[ -z "$TRIMMED" ]] && continue
+          for MATCH in "${INPUT_FILES_FOLDER}"/$TRIMMED; do
+            FILES+=("$MATCH")
+          done
+        done
+
+        if [[ "${#FILES[@]}" -eq 0 ]]; then
+          echo "::error::No files matched '${INPUT_FILES_FILTER}' in '${INPUT_FILES_FOLDER}'."
+          exit 1
+        fi
+
+        java -jar "$RUNNER_TEMP/jsign.jar" \
+          --storetype TRUSTEDSIGNING \
+          --keystore "${SIGNING_ENDPOINT}" \
+          --storepass "$TOKEN" \
+          --alias "${SIGNING_ALIAS}" \
+          "${FILES[@]}"
+
+    - name: Verify signatures
+      shell: pwsh
+      env:
+        FILES_FOLDER: ${{ inputs.files-folder }}
+        FILES_FILTER: ${{ inputs.files-folder-filter }}
+      run: ./.github/scripts/verify-signature.ps1
 
 branding:
   icon: lock
