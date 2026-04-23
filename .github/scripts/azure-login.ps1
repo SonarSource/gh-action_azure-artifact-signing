@@ -81,4 +81,15 @@ Connect-AzAccount `
   -Environment "AzureCloud" `
   -TenantId $azureTenantId
 
+# Sign artifacts use the Azure CLI (`az account get-access-token`). `Connect-AzAccount` alone
+# does not populate the CLI session, so establish the same federated identity for `az`.
+& az login --service-principal -u $azureClientId -t $azureTenantId --federated-token $token | Out-Host
+if ($LASTEXITCODE -ne 0) {
+  throw "az login failed with exit code $LASTEXITCODE"
+}
+& az account set --subscription $azureSubscriptionId | Out-Host
+if ($LASTEXITCODE -ne 0) {
+  throw "az account set failed with exit code $LASTEXITCODE"
+}
+
 Write-Host "Azure federated login completed and token file prepared at $tokenOutputFile"
