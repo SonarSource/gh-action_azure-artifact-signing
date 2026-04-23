@@ -4,13 +4,15 @@ on:
   pull_request:
 
 permissions:
+  id-token: write  # Required by SonarSource/ci-github-actions/config-npm for private npm auth
   contents: read
 
 jobs:
   pre-commit:
     name: pre-commit
-    runs-on: github-ubuntu-latest-s
+    runs-on: sonar-xs
     steps:
+      - uses: SonarSource/ci-github-actions/config-npm@v1
       - uses: SonarSource/gh-action_pre-commit@2ddc0c7fdabce0adfaaa4075a17690972ed9961a # 1.2.0
         with:
           extra-args: >
