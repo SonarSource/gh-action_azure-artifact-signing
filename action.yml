@@ -35,7 +35,7 @@ runs:
           echo "profile-type=test" >> "$GITHUB_OUTPUT"
         fi
 
-        echo "signing-endpoint=https://weu.codesigning.azure.net/" >> "$GITHUB_OUTPUT"
+        echo "signing-endpoint=https://weu.codesigning.azure.net" >> "$GITHUB_OUTPUT"
         echo "tenant-id=75622d57-788f-4dd3-b33c-739f625e6311" >> "$GITHUB_OUTPUT"
         echo "subscription-id=05011d2a-e478-46bd-b842-09c8693acccb" >> "$GITHUB_OUTPUT"
 
