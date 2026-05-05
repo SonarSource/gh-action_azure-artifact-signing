@@ -1,5 +1,4 @@
 ---
 self-hosted-runner:
   labels:
-    - github-ubuntu-latest-s
-    - github-windows-latest-s
+    - sonar-xs

@@ -2,21 +2,63 @@ name: Test
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
+      - v*
   pull_request:
 
 jobs:
   test-signing:
-    runs-on: github-windows-latest-s
+    runs-on: sonar-xs
     name: Test signing
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Test
-        shell: pwsh
+
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          cache: true
+          tool_versions: |
+            java temurin-21
+
+      - name: Create test artifacts
+        shell: bash
         run: |
-          Write-Host "Creating test artifact"
-          Write-Host "Test signing"
-          Write-Host "Verify signature"
+          mkdir -p artifacts
+          cat <<'EOF' > artifacts/hello.ps1
+          Write-Host "Hello from signed script"
+          EOF
+          cat <<'EOF' > artifacts/goodbye.ps1
+          Write-Host "Goodbye from signed script"
+          EOF
+
+      - name: Sign test artifacts
+        uses: ./
+        with:
+          files: "artifacts/*.ps1"
+          signing-profile: ${{ (github.ref_name == 'master' || startsWith(github.ref_name, 'v')) && 'release' || 'test' }}
+
+  test-setup-mode:
+    runs-on: sonar-xs
+    name: Test setup mode
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup signing environment only
+        uses: ./
+        with:
+          mode: setup
+          signing-profile: ${{ (github.ref_name == 'master' || startsWith(github.ref_name, 'v')) && 'release' || 'test' }}
+
+      - name: Verify exported environment variables
+        shell: bash
+        run: |
+          [[ "${SIGNING_ENDPOINT:?}" == "https://weu.codesigning.azure.net" ]]
+          [[ "${SIGNING_ACCOUNT:?}" == codesigning-* ]]
+          [[ "${SIGNING_PROFILE:?}" == sonarsource-* ]]
+          : "${ACCESS_TOKEN:?}"

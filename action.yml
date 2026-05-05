@@ -1,22 +1,251 @@
 name: Azure Artifact Signing
-description: Sign Windows artifacts using Azure Code Signing (Trusted Signing)
+description: Sign artifacts or setup Azure signing environment
 author: SonarSource
 
 inputs:
-  files-folder:
-    description: Path to the folder containing files to sign
-    required: true
-  files-folder-filter:
-    description: Glob pattern to filter files within the folder (e.g. "*.exe,*.dll")
+  mode:
+    description: >-
+      Action mode. 'sign' signs files directly. 'setup' only authenticates and
+      exports signing environment variables for downstream tooling.
     required: false
-    default: "*.exe,*.dll,*.msi"
+    default: "sign"
+  files:
+    description: >-
+      One or more glob patterns to match files for signing. For multiple
+      patterns, provide a multiline string with one pattern per line.
+    required: false
+    default: ""
+  signing-profile:
+    description: >-
+      Override signing profile selection. Valid values: 'test', 'release'. When
+      omitted, the profile is auto-selected based on event type and branch.
+    required: false
+    default: ""
+
+outputs:
+  signing-endpoint:
+    description: "Azure signing endpoint"
+    value: ${{ steps.signing-config.outputs.signing-endpoint }}
+  signing-account:
+    description: "Azure signing account"
+    value: ${{ steps.signing-config.outputs.account }}
+  signing-profile:
+    description: "Azure signing profile"
+    value: ${{ steps.signing-config.outputs.profile }}
+  access-token:
+    description: "Azure access token"
+    value: ${{ steps.azure-auth.outputs.access-token }}
 
 runs:
   using: composite
   steps:
-    - name: Sign
+    - name: Validate mode
       shell: bash
-      run: echo "Signing artifacts"
+      env:
+        INPUT_MODE: ${{ inputs.mode }}
+      run: |
+        if [[ "${INPUT_MODE}" != "sign" ]] && [[ "${INPUT_MODE}" != "setup" ]]; then
+          echo "::error::Invalid mode '${INPUT_MODE}'. Supported values are 'sign' and 'setup'."
+          exit 1
+        fi
+
+    - name: Configure signing parameters
+      id: signing-config
+      shell: bash
+      env:
+        INPUT_SIGNING_PROFILE: ${{ inputs.signing-profile }}
+      run: |
+        if [[ -n "${INPUT_SIGNING_PROFILE}" ]] && [[ "${INPUT_SIGNING_PROFILE}" != "test" ]] && [[ "${INPUT_SIGNING_PROFILE}" != "release" ]]; then
+          echo "::error::Invalid signing-profile '${INPUT_SIGNING_PROFILE}'. Supported values are 'test' and 'release'."
+          exit 1
+        fi
+
+        if [[ "${INPUT_SIGNING_PROFILE}" == "release" ]] || {
+          [[ -z "${INPUT_SIGNING_PROFILE}" ]] &&
+          [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]] &&
+          [[ "${GITHUB_REF_NAME}" == "master" || "${GITHUB_REF_NAME}" == branch-* ]]
+        }; then
+          SELECTED_PROFILE="release"
+          echo "account=codesigning-release" >> "$GITHUB_OUTPUT"
+          echo "profile=sonarsource-release" >> "$GITHUB_OUTPUT"
+          echo "client-id=3562cc05-016f-405e-b123-1622451a2cee" >> "$GITHUB_OUTPUT"
+        else
+          SELECTED_PROFILE="test"
+          echo "account=codesigning-test" >> "$GITHUB_OUTPUT"
+          echo "profile=sonarsource-test" >> "$GITHUB_OUTPUT"
+          echo "client-id=6b33b753-44e5-4afe-8da5-d7f849bd7909" >> "$GITHUB_OUTPUT"
+        fi
+
+        echo "::notice::Using signing profile '${SELECTED_PROFILE}'."
+
+        echo "signing-endpoint=https://weu.codesigning.azure.net" >> "$GITHUB_OUTPUT"
+        echo "tenant-id=75622d57-788f-4dd3-b33c-739f625e6311" >> "$GITHUB_OUTPUT"
+
+    - name: Authenticate to Azure
+      id: azure-auth
+      shell: bash
+      env:
+        AZURE_CLIENT_ID: ${{ steps.signing-config.outputs.client-id }}
+        AZURE_TENANT_ID: ${{ steps.signing-config.outputs.tenant-id }}
+      run: |
+        oidc_audience="${AZURE_OIDC_AUDIENCE:-api://AzureADTokenExchange}"
+        request_separator='?'
+        if [[ "${ACTIONS_ID_TOKEN_REQUEST_URL}" == *\?* ]]; then
+          request_separator='&'
+        fi
+
+        oidc_response="$(
+          curl -sSf \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}${request_separator}audience=${oidc_audience}"
+        )"
+        oidc_token="$(jq -r '.value // empty' <<< "${oidc_response}")"
+
+        if [[ -z "${oidc_token}" ]]; then
+          echo "::error::Failed to retrieve OIDC token from GitHub response."
+          exit 1
+        fi
+
+        token_response="$(
+          curl -sSf -X POST \
+            "https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token" \
+            --data-urlencode "client_id=${AZURE_CLIENT_ID}" \
+            --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+            --data-urlencode "client_assertion=${oidc_token}" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "scope=https://codesigning.azure.net/.default"
+        )"
+        azure_access_token="$(jq -r '.access_token // empty' <<< "${token_response}")"
+
+        if [[ -z "${azure_access_token}" ]]; then
+          echo "::error::Failed to retrieve Azure access token."
+          exit 1
+        fi
+
+        echo "::add-mask::${azure_access_token}"
+        echo "access-token=${azure_access_token}" >> "${GITHUB_OUTPUT}"
+
+    - name: Export signing environment
+      if: ${{ inputs.mode == 'setup' }}
+      shell: bash
+      run: |
+        echo "SIGNING_ENDPOINT=${{ steps.signing-config.outputs.signing-endpoint }}" >> "$GITHUB_ENV"
+        echo "SIGNING_ACCOUNT=${{ steps.signing-config.outputs.account }}" >> "$GITHUB_ENV"
+        echo "SIGNING_PROFILE=${{ steps.signing-config.outputs.profile }}" >> "$GITHUB_ENV"
+        echo "ACCESS_TOKEN=${{ steps.azure-auth.outputs.access-token }}" >> "$GITHUB_ENV"
+
+    - name: Set jsign metadata
+      if: ${{ inputs.mode == 'sign' }}
+      id: jsign-meta
+      shell: bash
+      run: |
+        echo "version=7.4" >> "$GITHUB_OUTPUT"
+        echo "sha256=2abf2ade9ea322acc2d60c24794eadc465ff9380938fca4c932d09e0b25f1c28" >> "$GITHUB_OUTPUT"
+        echo "binary=$RUNNER_TEMP/jsign.jar" >> "$GITHUB_OUTPUT"
+
+    - name: Cache jsign jar
+      if: ${{ inputs.mode == 'sign' }}
+      id: jsign-cache
+      uses: SonarSource/gh-action_cache@v1
+      with:
+        path: ${{ steps.jsign-meta.outputs.binary }}
+        key: jsign-${{ runner.os }}-${{ steps.jsign-meta.outputs.version }}
+
+    - name: Download jsign
+      if: ${{ inputs.mode == 'sign' && steps.jsign-cache.outputs.cache-hit != 'true' }}
+      shell: bash
+      env:
+        JSIGN_VERSION: ${{ steps.jsign-meta.outputs.version }}
+        JSIGN_BINARY: ${{ steps.jsign-meta.outputs.binary }}
+      run: |
+        curl -sSfL -o "$JSIGN_BINARY" \
+          "https://github.com/ebourg/jsign/releases/download/${JSIGN_VERSION}/jsign-${JSIGN_VERSION}.jar"
+
+    - name: Verify jsign checksum
+      if: ${{ inputs.mode == 'sign' }}
+      shell: bash
+      env:
+        JSIGN_SHA256: ${{ steps.jsign-meta.outputs.sha256 }}
+        JSIGN_BINARY: ${{ steps.jsign-meta.outputs.binary }}
+      run: echo "${JSIGN_SHA256}  ${JSIGN_BINARY}" | sha256sum -c -
+
+    - name: Validate files input
+      if: ${{ inputs.mode == 'sign' }}
+      shell: bash
+      env:
+        INPUT_FILES: ${{ inputs.files }}
+      run: |
+        if [[ -z "${INPUT_FILES}" ]]; then
+          echo "::error::Input 'files' is required in mode=sign."
+          exit 1
+        fi
+
+    - name: Resolve file patterns
+      if: ${{ inputs.mode == 'sign' }}
+      id: glob
+      uses: tj-actions/glob@2deae40528141fc53131606d56b4e4ce2a486b29 # v22.0.2
+      with:
+        files: ${{ inputs.files }}
+        separator: "\n"
+        match-directories: false
+        read-gitignore: false
+
+    - name: Validate matched files
+      if: ${{ inputs.mode == 'sign' }}
+      shell: bash
+      env:
+        MATCHED_FILES: ${{ steps.glob.outputs.paths }}
+      run: |
+        if [[ -z "${MATCHED_FILES}" ]]; then
+          echo "::error::No files matched the patterns in 'files'."
+          exit 1
+        fi
+
+    - name: Sign artifacts
+      if: ${{ inputs.mode == 'sign' }}
+      shell: bash
+      env:
+        FILES_LIST: ${{ steps.glob.outputs.paths-output-file }}
+        SIGNING_ENDPOINT: ${{ steps.signing-config.outputs.signing-endpoint }}
+        SIGNING_ACCOUNT: ${{ steps.signing-config.outputs.account }}
+        SIGNING_PROFILE: ${{ steps.signing-config.outputs.profile }}
+        ACCESS_TOKEN: ${{ steps.azure-auth.outputs.access-token }}
+        JSIGN_BINARY: ${{ steps.jsign-meta.outputs.binary }}
+      run: |
+        mapfile -t files < "${FILES_LIST}"
+
+        java -jar "$JSIGN_BINARY" \
+          --storetype TRUSTEDSIGNING \
+          --keystore "${SIGNING_ENDPOINT}" \
+          --storepass "${ACCESS_TOKEN}" \
+          --alias "${SIGNING_ACCOUNT}/${SIGNING_PROFILE}" \
+          "${files[@]}"
+
+    - name: Verify signatures
+      if: ${{ inputs.mode == 'sign' }}
+      shell: bash
+      env:
+        FILES_LIST: ${{ steps.glob.outputs.paths-output-file }}
+        JSIGN_BINARY: ${{ steps.jsign-meta.outputs.binary }}
+      run: |
+        mapfile -t files < "${FILES_LIST}"
+
+        failed=0
+        for file in "${files[@]}"; do
+          echo "Checking signature on ${file}"
+          if java -jar "${JSIGN_BINARY}" extract "${file}" > /dev/null 2>&1; then
+            echo "Signature found on ${file}"
+          else
+            echo "::error::No signature found on ${file}"
+            failed=1
+          fi
+          rm -f "${file}.sig"
+        done
+
+        if [[ ${failed} -ne 0 ]]; then
+          echo "::error::Signature verification failed for one or more files."
+          exit 1
+        fi
 
 branding:
   icon: lock
