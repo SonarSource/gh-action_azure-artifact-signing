@@ -4,8 +4,17 @@ Shared GitHub Action to sign Windows artifacts with Azure Artifact Signing.
 
 The action supports two modes:
 
-- `sign` (default): authenticate and sign artifacts directly.
-- `setup`: authenticate and export environment variables for downstream signing tools such as [`jsign-maven-plugin`](https://central.sonatype.com/artifact/net.jsign/jsign-maven-plugin).
+- `sign` (default): authenticate and sign artifacts directly. Signing is performed by [`jsign`](https://ebourg.github.io/jsign/)
+- `setup`: authenticate and export environment variables for downstream signing tools such as
+[`jsign-maven-plugin`](https://ebourg.github.io/jsign/#maven) and [`dotnet sign`](https://github.com/dotnet/sign).
+
+## Requirements
+
+- Workflow must grant `id-token: write` permission for GitHub OIDC.
+- Java runtime (17+) must be available on `PATH` when using `mode=sign` (this action does not install Java).
+- In `mode=sign`, `files` is required and must match at least one existing file.
+- Repository must be onboarded in [`re-service-config/azure_artifact_signing`](https://github.com/SonarSource/re-service-config/tree/master/azure_artifact_signing)
+(federated identity credentials provisioned for the repository).
 
 ## Usage
 
@@ -29,7 +38,7 @@ permissions:
   contents: read
 
 jobs:
-  sign:
+  build:
     runs-on: sonar-xs
     steps:
       - uses: actions/checkout@v6
@@ -198,9 +207,22 @@ chain. `jsign` does not support full signature validation. Use language-specific
 Note that the `test` signing certificate is not trusted by OS certificate stores by default and must be manually imported before
 verification will succeed.
 
-## Requirements
+## Releasing
 
-- Workflow must grant `id-token: write` permission for GitHub OIDC.
-- Runner must be Linux and provide `bash`, `curl`, and `jq`.
-- Java runtime (17+) must be available on `PATH` when using `mode=sign` (this action does not install Java).
-- In `mode=sign`, `files` is required and must match at least one existing file.
+1. Create a new GitHub release on <https://github.com/SonarSource/gh-action_azure-artifact-signing/releases>
+
+    Follow semantic versioning:
+
+    - **patch** for bug fixes and documentation updates
+    - **minor** for new features
+    - **major** for breaking changes
+
+2. Update the `v*` branch to point to the new tag:
+
+    ```shell
+    git fetch --tags
+    git update-ref -m "reset: update branch v1 to tag 1.y.z" refs/heads/v1 1.y.z
+    git push origin v1
+    ```
+
+3. Communicate the release on [#ops-platform-releases](https://sonarsource.enterprise.slack.com/archives/C0A6RL3L9BP).
