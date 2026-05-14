@@ -12,7 +12,7 @@ jobs:
     name: pre-commit
     runs-on: sonar-xs
     steps:
-      - uses: SonarSource/ci-github-actions/config-npm@v1
+      - uses: SonarSource/ci-github-actions/config-npm@9456e3aab93a6c6d0c459b977aaa594bda102e29 # 1.4.0
       - uses: SonarSource/gh-action_pre-commit@2ddc0c7fdabce0adfaaa4075a17690972ed9961a # 1.2.0
         with:
           extra-args: >
