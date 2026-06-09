@@ -158,7 +158,8 @@ runs:
         JSIGN_VERSION: ${{ steps.jsign-meta.outputs.version }}
         JSIGN_BINARY: ${{ steps.jsign-meta.outputs.binary }}
       run: |
-        curl -sSfL -o "$JSIGN_BINARY" \
+        curl -sSfL --retry 3 --retry-delay 5 --retry-all-errors \
+          -o "$JSIGN_BINARY" \
           "https://github.com/ebourg/jsign/releases/download/${JSIGN_VERSION}/jsign-${JSIGN_VERSION}.jar"
 
     - name: Verify jsign checksum
