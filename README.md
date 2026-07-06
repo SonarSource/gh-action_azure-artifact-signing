@@ -13,8 +13,6 @@ The action supports two modes:
 - Workflow must grant `id-token: write` permission for GitHub OIDC.
 - Java runtime (17+) must be available on `PATH` when using `mode=sign` (this action does not install Java).
 - In `mode=sign`, `files` is required and must match at least one existing file.
-- Repository must be onboarded in [`re-service-config/azure_artifact_signing`](https://github.com/SonarSource/re-service-config/tree/master/azure_artifact_signing)
-(federated identity credentials provisioned for the repository).
 
 ## Usage
 
@@ -179,7 +177,7 @@ With this setup:
 
 This action hardcodes Azure Artifact Signing configuration and auto-selects the signing profile unless `signing-profile` is explicitly set:
 
-- `master`, `branch-*` (push events): release profile (`codesigning-release`)
+- `master`, `main`, `branch-*` (push events): release profile (`codesigning-release`)
 - pull requests and all other branches: test profile (`codesigning-test`)
 
 Explicit override examples:

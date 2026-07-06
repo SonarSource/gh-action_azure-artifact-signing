@@ -63,7 +63,7 @@ runs:
         if [[ "${INPUT_SIGNING_PROFILE}" == "release" ]] || {
           [[ -z "${INPUT_SIGNING_PROFILE}" ]] &&
           [[ "${GITHUB_EVENT_NAME}" != "pull_request" ]] &&
-          [[ "${GITHUB_REF_NAME}" == "master" || "${GITHUB_REF_NAME}" == branch-* ]]
+          [[ "${GITHUB_REF_NAME}" == "master" || "${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == branch-* ]]
         }; then
           SELECTED_PROFILE="release"
           echo "account=codesigning-release" >> "$GITHUB_OUTPUT"
