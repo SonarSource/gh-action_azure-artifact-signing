@@ -146,7 +146,7 @@ runs:
     - name: Cache jsign jar
       if: ${{ inputs.mode == 'sign' }}
       id: jsign-cache
-      uses: SonarSource/gh-action_cache@v1
+      uses: SonarSource/gh-action_cache@4e40632e780e11a8bbe9b721985ab22b42847cc4 # v1.7.2
       with:
         path: ${{ steps.jsign-meta.outputs.binary }}
         key: jsign-${{ runner.os }}-${{ steps.jsign-meta.outputs.version }}
