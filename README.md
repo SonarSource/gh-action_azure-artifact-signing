@@ -78,7 +78,7 @@ jobs:
 - `mode` (default: `sign`): `sign` to sign directly, `setup` to export env vars only.
 - `files` (required in sign mode, default: `""`): one or more glob patterns
   used to resolve files to sign; use a multiline value with one pattern per
-  line. Uses the [tj-actions/glob](https://github.com/tj-actions/glob) action under the hood.
+  line. Uses the [step-security/tj-actions-glob](https://github.com/step-security/tj-actions-glob) action under the hood.
 - `signing-profile` (default: `""`): override profile selection with `test` or `release`.
 
 ## Outputs
