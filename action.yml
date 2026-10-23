@@ -184,7 +184,7 @@ runs:
     - name: Resolve file patterns
       if: ${{ inputs.mode == 'sign' }}
       id: glob
-      uses: tj-actions/glob@2deae40528141fc53131606d56b4e4ce2a486b29 # v22.0.2
+      uses: step-security/tj-actions-glob@9b1155644d3a9c17248c1e482b2f433263816869 # v22.0.3
       with:
         files: ${{ inputs.files }}
         separator: "\n"
